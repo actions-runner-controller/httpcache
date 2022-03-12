@@ -166,6 +166,18 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		transport = http.DefaultTransport
 	}
 
+	// We have to retain the original request header because some implementations of http.RoundTripper
+	// modifies the request header.
+	//
+	// That is, there might be cases that the X-Varied-* header of the cached response generated from
+	// this request can differ from the original request header, which makes
+	// the next request that should be served from cache doesn't pass varyMatches,
+	// resulting in subsequent requests that shold be served from the cached don't get served from cache.
+	//
+	// An example of such http.RoundTripper implementation is ghinstallation.Transport.
+	// https://github.com/bradleyfalzon/ghinstallation/blob/f6d76acbaf3dfd732504d10cfc3d296ddb96b13a/transport.go#L120
+	reqHeader := req.Header.Clone()
+
 	if cacheable && cachedResp != nil && err == nil {
 		if t.MarkCachedResponses {
 			cachedResp.Header.Set(XFromCache, "1")
@@ -232,11 +244,11 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		}
 	}
 
-	if cacheable && canStore(parseCacheControl(req.Header), parseCacheControl(resp.Header)) {
+	if cacheable && canStore(parseCacheControl(reqHeader), parseCacheControl(resp.Header)) {
 		for _, varyKey := range headerAllCommaSepValues(resp.Header, "vary") {
 			varyKey = http.CanonicalHeaderKey(varyKey)
 			fakeHeader := "X-Varied-" + varyKey
-			reqValues := req.Header.Values(varyKey)
+			reqValues := reqHeader.Values(varyKey)
 			resp.Header.Del(fakeHeader)
 			for _, v := range reqValues {
 				resp.Header.Add(fakeHeader, v)
