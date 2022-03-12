@@ -121,10 +121,24 @@ func (t *Transport) Client() *http.Client {
 func varyMatches(cachedResp *http.Response, req *http.Request) bool {
 	for _, header := range headerAllCommaSepValues(cachedResp.Header, "vary") {
 		header = http.CanonicalHeaderKey(header)
-		if header != "" && req.Header.Get(header) != cachedResp.Header.Get("X-Varied-"+header) {
+		if header != "" && !matchValues(req.Header.Values(header), cachedResp.Header.Values("X-Varied-"+header)) {
 			return false
 		}
 	}
+	return true
+}
+
+func matchValues(l, r []string) bool {
+	if len(l) != len(r) {
+		return false
+	}
+
+	for i, l := range l {
+		if l != r[i] {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -222,9 +236,10 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		for _, varyKey := range headerAllCommaSepValues(resp.Header, "vary") {
 			varyKey = http.CanonicalHeaderKey(varyKey)
 			fakeHeader := "X-Varied-" + varyKey
-			reqValue := req.Header.Get(varyKey)
-			if reqValue != "" {
-				resp.Header.Set(fakeHeader, reqValue)
+			reqValues := req.Header.Values(varyKey)
+			resp.Header.Del(fakeHeader)
+			for _, v := range reqValues {
+				resp.Header.Add(fakeHeader, v)
 			}
 		}
 		switch req.Method {
